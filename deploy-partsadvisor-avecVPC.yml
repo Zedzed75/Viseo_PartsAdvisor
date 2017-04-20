@@ -1,0 +1,358 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Parameters: 
+    Env:
+        Default: dev
+        Type: String
+        Description: Toutes les resources sont tagges et/ou prefixes par cet environnement
+    KeyName:
+        Type: String
+        Description: Nom de la cle utilisee pour se connecter. Doit exister sur AWS
+    AppServerCount:
+        Type: Number
+        Default: 2
+        Description: nombre de serveurs d'appli
+    DBSlaveCount:
+        Type: Number
+        Default: 1
+        Description: Nombre de db slave (il y a au moins un maitre systematiquement cree)
+    AppServerType:
+        Type: String
+        Description: Type d'instance pour les tomcat
+        Default: t2.medium
+        AllowedValues: 
+        - m4.large
+        - m4.xlarge
+        - m3.2xlarge
+        - m3.medium
+        - t2.small
+        - t2.medium
+        - t2.micro
+    BastionType: 
+        Type: String
+        Description: Type d'instance pour le bastion
+        Default: t2.medium
+        AllowedValues: 
+        - m4.large
+        - m4.xlarge
+        - m3.2xlarge
+        - m3.medium
+        - t2.small
+        - t2.medium
+        - t2.micro
+    DatabaseServerType:
+        Type: String
+        Description: Type d'instance pour les Mongo et ElasticSearch
+        Default: t2.medium
+        AllowedValues: 
+        - m4.large
+        - m4.xlarge
+        - m3.2xlarge
+        - m3.medium
+        - t2.small
+        - t2.medium
+        - t2.micro
+    ActivitiType:
+        Type: String
+        Description: Type d'instance pour Activiti
+        Default: t2.medium
+        AllowedValues: 
+        - m4.large
+        - m4.xlarge
+        - m3.2xlarge
+        - m3.medium
+        - t2.small
+        - t2.medium
+        - t2.micro
+    ELKType:
+        Type: String
+        Description: Type d'instance pour le monitoring
+        Default: t2.medium
+        AllowedValues: 
+            - m4.large
+            - m4.xlarge
+            - m3.2xlarge
+            - m3.medium
+            - t2.small
+            - t2.medium
+            - t2.micro
+    RDSType:
+        Type: String
+        Description: Type d'instance pour le monitoring
+        Default: db.m4.large
+        AllowedValues: 
+            - db.m4.large
+            - db.m4.xlarge
+            - db.m3.2xlarge
+            - db.m3.medium
+            - db.t2.small
+            - db.t2.medium
+            - db.t2.micro
+    VPCcidr:
+        Type: String
+        Description: plage d'adresses IP pour le VPC
+        MinLength: '9'
+        MaxLength: '18'
+        Default: 10.1.0.0/16
+        AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+        ConstraintDescription: "doit etre une plage d'IP CIDR valide de la forme x.x.x.x/x."
+    VPCname:
+        Type: String
+        Default: ap-sf-vpc
+        AllowedValues:
+          - ram-vpc
+          - ap-prod-vpc
+          - ap-sf-vpc
+          - ap-preprod-vpc
+    RouteTname:
+        Description: liste des noms de tables de routage
+        Type: String
+        Default: ap-sf-main-route
+        AllowedValues:
+          - ap-prod-main-route
+          - ram-main-route
+          - ap-sf-main-route
+          - ap-prod-private-hosts-route
+          - ap-sf-private-hosts-route
+          - ap-prod-private-route
+          - ap-preprod-main-route
+          - ap-preprod-private-hosts-route
+  
+  
+    SUBname:
+        Description: liste des noms de sous-reseaux
+        Type: String
+        Default: ap_sf_pub_a
+        AllowedValues:
+          - ap-prod-private-a
+          - ap-prod-private-b
+          - ap-prod-private-c
+          - ap-prod-pub-a
+          - ap-prod-pub-b
+          - ap-prod-pub-c
+          - ap_preprod_private_a
+          - ap_preprod_private_b
+          - ap_preprod_private_c
+          - ap_preprod_pub_a
+          - ap_preprod_pub_b
+          - ap_preprod_pub_c
+          - ap_sf_private_a
+          - ap_sf_private_b
+          - ap_sf_private_c
+          - ap_sf_pub_a
+          - ap_sf_pub_b
+          - ap_sf_pub_c
+    
+    SubnetCIDR:
+        Type: String
+        Description: plage d'adresses IP pour le Subnet public
+        MinLength: '9'
+        MaxLength: '18'
+        Default: 10.1.0.0/24
+        AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+        ConstraintDescription: "doit etre une plage d'IP CIDR valide de la forme x.x.x.x/x."
+Mappings:
+    Region:
+        us-east-1:
+          amd64: ami-1347ce05
+        us-west-1:
+          amd64: ami-1e55707e
+        ap-northeast-2:
+          amd64: ami-33df0d5d
+        ap-northeast-1:
+          amd64: ami-c097b4a7
+        sa-east-1:
+          amd64: ami-aa7715c6
+        ap-southeast-1:
+          amd64: ami-af58e6cc
+        ca-central-1:
+          amd64: ami-49e8542d
+        ap-southeast-2:
+          amd64: ami-f4f3fd97
+        us-west-2:
+          amd64: ami-5c71e13c
+        us-east-2:
+          amd64: ami-9ab793ff
+        ap-south-1:
+          amd64: ami-778cff18
+        eu-central-1:
+          amd64: ami-5f6cbf30
+        eu-west-1:
+          amd64: ami-6e615b08
+        eu-west-2:
+          amd64: ami-0b26326f
+
+Resources:
+    
+    VPC:
+        Type: AWS::EC2::VPC
+        Properties:
+          CidrBlock: !Ref VPCcidr
+          EnableDnsSupport: 'true'
+          EnableDnsHostnames: 'true'
+          InstanceTenancy: default
+          Tags:
+          - Key: Name
+            Value: 
+              Ref: VPCname
+          - {"Key": "environnement", "Value": {"Ref": "Env"}}
+
+# A tester : ajout d'une InternetGateway et rattachement de celle-ci au VPC
+
+#     InternetGateway:
+#      Type: "AWS::EC2::InternetGateway"
+#      Properties:
+#        Tags:  
+#        - {"Key": "environnement", "Value": {"Ref": "Env"}}
+
+#    AttachGateway:
+#      Type: AWS::EC2::VPCGatewayAttachment
+#      Properties:
+#        VpcId: !Ref VPC
+#      InternetGatewayId: !Ref InternetGateway
+  
+    Subnet:
+        Type: AWS::EC2::Subnet
+        Properties:
+          VpcId: !Ref VPC
+          CidrBlock: !Ref SubnetCIDR
+          MapPublicIpOnLaunch: 'false'
+          AvailabilityZone: 
+            Fn::Select:
+            - 0
+            - Fn::GetAZs: !Ref "AWS::Region"
+          Tags:
+          - Key: Name
+            Value: 
+              Ref: SUBname
+          - {"Key": "environnement", "Value": {"Ref": "Env"}}
+
+    RouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties:
+          VpcId: !Ref VPC
+          Tags:
+          - Key: Name
+            Value: 
+              Ref: RouteTname
+
+    #Security groups
+    AppServerSG:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Groupe AppServer
+            VpcId: !Ref VPC
+            Tags:
+            - {"Key": "environnement", "Value": {"Ref": "Env"}}
+
+    BastionSG:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Groupe bastion
+            VpcId: !Ref VPC
+            SecurityGroupIngress:
+            - IpProtocol: tcp
+              FromPort: '22'
+              ToPort: '22'
+              CidrIp: 0.0.0.0/0
+            Tags:
+            - {"Key": "environnement", "Value": {"Ref": "Env"}}
+
+    DatabaseSG:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Groupe base de donnees
+            VpcId: !Ref VPC
+            Tags:
+            - {"Key": "environnement", "Value": {"Ref": "Env"}}
+
+    ELKSG:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Groupe ElasticSearch Logstash Kibana
+            VpcId: !Ref VPC
+            Tags:
+            - {"Key": "environnement", "Value": {"Ref": "Env"}}
+
+    PrivateSG:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Toutes les instances non publiques appartiennent a ce groupe
+            VpcId: !Ref VPC
+            Tags:
+            - {"Key": "environnement", "Value": {"Ref": "Env"}}
+
+    AppServer2Database:
+        Type: AWS::EC2::SecurityGroupIngress
+        Properties:
+          GroupId:
+            Ref: DatabaseSG
+          IpProtocol: tcp
+          FromPort: '1'
+          ToPort: '65535'
+          Tags:
+            - {"Key": "environnement", "Value": {"Ref": "Env"}}
+          SourceSecurityGroupId:
+            Ref: AppServerSG
+
+    Bastion2Private:
+        Type: AWS::EC2::SecurityGroupIngress
+        Properties:
+          GroupId:
+            Ref: PrivateSG
+          IpProtocol: tcp
+          FromPort: '1'
+          ToPort: '65535'
+          Tags:
+            - {"Key": "environnement", "Value": {"Ref": "Env"}}
+          SourceSecurityGroupId:
+            Ref: BastionSG
+
+    AppServerConfiguration:
+        Type: AWS::AutoScaling::LaunchConfiguration
+        Properties:
+          #KeyName: !Ref KeyName
+          ImageId:  !FindInMap [Region, !Ref "AWS::Region", amd64] #" 
+          SecurityGroups:
+          - Ref: AppServerSG
+          - Ref: PrivateSG
+#          Tags:
+#         - {"Key": "environnement", "Value": {"Ref": "Env"},"PropagateAtLaunch":"true"}
+          InstanceType: 
+              Ref: AppServerType
+#          VpcId:
+#              Ref: VPC
+
+    AppServerGroup:
+        Type: AWS::AutoScaling::AutoScalingGroup
+        Properties:
+          LoadBalancerNames: 
+          - Ref: ElasticLoadBalancer
+          LaunchConfigurationName:
+            Ref: AppServerConfiguration
+          AvailabilityZones:
+            Fn::GetAZs: !Ref "AWS::Region"
+          VPCZoneIdentifier: 
+          - Ref: Subnet
+          MinSize: !Ref AppServerCount
+          MaxSize: !Ref AppServerCount
+          DesiredCapacity: !Ref AppServerCount
+
+    ElasticLoadBalancer:
+        Type: AWS::ElasticLoadBalancing::LoadBalancer
+        Properties:
+          Scheme: internet-facing
+          AvailabilityZones:
+              Fn::GetAZs: !Ref "AWS::Region"
+          Listeners:
+          - LoadBalancerPort: '80'
+            InstancePort: '80'
+            Protocol: TCP
+            InstanceProtocol: TCP
+
+
+#Outputs:
+ #   ELBEndpoint:
+ #       Description: "Endpoint running the app"
+ #       Value: {"Ref" : "ELB"}
+#
