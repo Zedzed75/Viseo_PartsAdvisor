@@ -199,17 +199,17 @@ Resources:
 
 # A tester : ajout d'une InternetGateway et rattachement de celle-ci au VPC
 
-#     InternetGateway:
-#      Type: "AWS::EC2::InternetGateway"
-#      Properties:
-#        Tags:  
-#        - {"Key": "environnement", "Value": {"Ref": "Env"}}
+    InternetGateway:
+      Type: "AWS::EC2::InternetGateway"
+      Properties:
+        Tags:  
+        - {"Key": "environnement", "Value": {"Ref": "Env"}}
 
-#    AttachGateway:
-#      Type: AWS::EC2::VPCGatewayAttachment
-#      Properties:
-#        VpcId: !Ref VPC
-#      InternetGatewayId: !Ref InternetGateway
+    AttachGateway:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        VpcId: !Ref VPC
+        InternetGatewayId: !Ref InternetGateway
   
     Subnet:
         Type: AWS::EC2::Subnet
