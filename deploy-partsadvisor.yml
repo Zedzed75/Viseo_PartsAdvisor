@@ -7,6 +7,7 @@ Parameters:
         Description: Toutes les resources sont tagges et/ou prefixes par cet environnement
     KeyName:
         Type: String
+        Default: dev-access-key
         Description: Nom de la cle utilisee pour se connecter. Doit exister sur AWS
     AppServerCount:
         Type: Number
@@ -129,7 +130,7 @@ Parameters:
 
     SubnetaCIDR:
         Type: String
-        Description: plage d'adresses IP pour le Subnet public
+        Description: plage d'adresses IP pour le Subnet private-A
         MinLength: '9'
         MaxLength: '18'
         Default: 10.1.1.0/24
@@ -138,7 +139,7 @@ Parameters:
 
     SubnetbCIDR:
         Type: String
-        Description: plage d'adresses IP pour le Subnet public
+        Description: plage d'adresses IP pour le Subnet private-B
         MinLength: '9'
         MaxLength: '18'
         Default: 10.1.2.0/24
@@ -147,7 +148,7 @@ Parameters:
 
     SubnetcCIDR:
         Type: String
-        Description: plage d'adresses IP pour le Subnet public
+        Description: plage d'adresses IP pour le Subnet private-C
         MinLength: '9'
         MaxLength: '18'
         Default: 10.1.3.0/24
@@ -195,7 +196,7 @@ Mappings:
           amd64: ami-0b26326f
 
 Resources:
-    
+# creation du VPC    
     VPC:
         Type: AWS::EC2::VPC
         Properties:
@@ -205,11 +206,10 @@ Resources:
           InstanceTenancy: default
           Tags:
           - Key: Name
-            Value: 
-              Ref: VPCname
+            Value: !Ref VPCname
           - {"Key": "environnement", "Value": {"Ref": "Env"}}
 
-# A tester : ajout d'une InternetGateway et rattachement de celle-ci au VPC
+# creation de l'internet gateway et rattachement au VPC.
 
     InternetGateway:
       Type: "AWS::EC2::InternetGateway"
@@ -217,12 +217,12 @@ Resources:
         Tags:  
         - {"Key": "environnement", "Value": {"Ref": "Env"}}
 
-    AttachGateway:
+    GatewayToInternet:
       Type: AWS::EC2::VPCGatewayAttachment
       Properties:
         VpcId: !Ref VPC
         InternetGatewayId: !Ref InternetGateway
-  
+# creation des subnets dans chaque Availibility Zone de la region (A B et C) et un public subnet.
     SubnetA:
         Type: AWS::EC2::Subnet
         Properties:
@@ -282,7 +282,7 @@ Resources:
           - Key: Name
             Value: PublicSub
           - {"Key": "environnement", "Value": {"Ref": "Env"}}
-
+# creation de la table de routage
     RouteTable:
         Type: AWS::EC2::RouteTable
         Properties:
@@ -291,6 +291,38 @@ Resources:
           - Key: Name
             Value: 
               Ref: RouteTname
+# creation d'une route dans la table vers l'internet gateway
+  Route2Internet:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayToInternet
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+# Association entre les sous reseaux et la table de routage
+    SubARTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            SubnetId: !Ref SubnetA
+            RouteTableId: !Ref RouteTable
+
+    SubBRTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            SubnetId: !Ref SubnetB
+            RouteTableId: !Ref RouteTable
+
+    SubCRTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            SubnetId: !Ref SubnetC
+            RouteTableId: !Ref RouteTable
+
+    SubPubRTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            SubnetId: !Ref SubnetPub
+            RouteTableId: !Ref RouteTable
 
     #Security groups
     AppServerSG:
@@ -366,9 +398,36 @@ Resources:
 
     AppServerConfiguration:
         Type: AWS::AutoScaling::LaunchConfiguration
+        Metadata:
+            AWS::CloudFormation::Init:
+              config:
+                package:
+                - nginx
+                services: 
+                  sysvinit: 
+                    nginx: 
+                      enabled: "true"
+                      ensureRunning: "true"
+                      files: 
+                        - "/etc/nginx/nginx.conf"
+                      sources: 
+                        - "/var/www/html"
         Properties:
           #KeyName: !Ref KeyName
           ImageId:  !FindInMap [Region, !Ref "AWS::Region", amd64] #" 
+          UserData:
+              "Fn::Base64": !Sub |      
+                   #!/bin/bash -xe
+                   sudo apt-get update
+                   sudo apt-get -y upgrade
+                   # Install AWSCli
+                   sudo apt install -y awscli
+                   # Install cfn-init for Ubuntu
+                   apt-get -y install python-setuptools
+                   easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+                   ln -s /root/aws-cfn-bootstrap-latest/init/ubuntu/cfn-hup /etc/init.d/cfn-hup
+                   cfn-init -v --region ${AWS::Region} --stack ${AWS::StackName} --resource LaunchConfiguration 
+                   cfn-signal -e $? --region ${AWS::Region} --stack ${AWS::StackName} --resource AutoScalingGroup
           SecurityGroups:
           - Ref: AppServerSG
           - Ref: PrivateSG
@@ -412,9 +471,8 @@ Resources:
             Protocol: TCP
             InstanceProtocol: TCP
 
-
 #Outputs:
- #   ELBEndpoint:
- #       Description: "Endpoint running the app"
- #       Value: {"Ref" : "ELB"}
-#
+#   ELBEndpoint:
+#       Description: "Endpoint running the app"
+#       Value: {"Ref" : "ElasticLoadBalancer"}#
+...
