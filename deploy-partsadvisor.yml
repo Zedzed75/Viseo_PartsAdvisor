@@ -291,14 +291,14 @@ Resources:
           - Key: Name
             Value: 
               Ref: RouteTname
-# creation d'une route dans la table vers l'internet gateway
-  Route2Internet:
-    Type: AWS::EC2::Route
-    DependsOn: GatewayToInternet
-    Properties:
-      RouteTableId: !Ref RouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref InternetGateway
+# creation d'une route dans la table de routage vers l'internet gateway
+    Route2Internet:
+        Type: AWS::EC2::Route
+        DependsOn: GatewayToInternet
+        Properties:
+            RouteTableId: !Ref RouteTable
+            DestinationCidrBlock: 0.0.0.0/0
+            GatewayId: !Ref InternetGateway
 # Association entre les sous reseaux et la table de routage
     SubARTableAssociation:
         Type: AWS::EC2::SubnetRouteTableAssociation
