@@ -291,7 +291,7 @@ Resources:
           - Key: Name
             Value: 
               Ref: RouteTname
-# creation d'une route dans la table de routage vers l'internet gateway
+# creation d'une route dans la table vers l'internet gateway
     Route2Internet:
         Type: AWS::EC2::Route
         DependsOn: GatewayToInternet
@@ -367,14 +367,18 @@ Resources:
         Properties:
             GroupDescription: Toutes les instances non publiques appartiennent a ce groupe
             VpcId: !Ref VPC
+            SecurityGroupIngress:
+            - IpProtocol: tcp
+              CidrIp: 10.1.0.0/24
+              FromPort: '22'
+              ToPort: '22'
             Tags:
             - {"Key": "environnement", "Value": {"Ref": "Env"}}
 
     AppServer2Database:
         Type: AWS::EC2::SecurityGroupIngress
         Properties:
-          GroupId:
-            Ref: DatabaseSG
+          GroupId: !Ref DatabaseSG
           IpProtocol: tcp
           FromPort: '1'
           ToPort: '65535'
@@ -386,8 +390,7 @@ Resources:
     Bastion2Private:
         Type: AWS::EC2::SecurityGroupIngress
         Properties:
-          GroupId:
-            Ref: PrivateSG
+          GroupId: !Ref PrivateSG
           IpProtocol: tcp
           FromPort: '1'
           ToPort: '65535'
@@ -413,7 +416,7 @@ Resources:
                       sources: 
                         - "/var/www/html"
         Properties:
-          #KeyName: !Ref KeyName
+          KeyName: !Ref KeyName
           ImageId:  !FindInMap [Region, !Ref "AWS::Region", amd64] #" 
           UserData:
               "Fn::Base64": !Sub |      
@@ -455,12 +458,52 @@ Resources:
           MaxSize: !Ref AppServerCount
           DesiredCapacity: !Ref AppServerCount
 
+    Bastion:
+      Type: "AWS::EC2::Instance"
+      Metadata:
+          AWS::CloudFormation::Init:
+            config:
+              package:
+              - nginx
+              - oracle-java8-installer
+              services: 
+                sysvinit: 
+                  nginx: 
+                    enabled: "true"
+                    ensureRunning: "true"
+                    files: 
+                      - "/etc/nginx/nginx.conf"
+                    sources: 
+                      - "/var/www/html"
+      Properties: 
+            ImageId:  !FindInMap [Region, !Ref "AWS::Region", amd64] #" 
+            KeyName:  !Ref KeyName
+            InstanceType: !Ref BastionType
+            NetworkInterfaces: 
+            - AssociatePublicIpAddress: "true"
+              DeviceIndex: "0"
+              GroupSet:  
+              - !Ref BastionSG
+              SubnetId: !Ref SubnetPub
+            UserData:
+                "Fn::Base64": !Sub |      
+                     #!/bin/bash -xe
+                     #sudo apt-get update
+                     #sudo apt-get -y upgrade
+                     # Install AWSCli
+                     sudo apt install -y awscli
+                     # Install cfn-init for Ubuntu
+                     apt-get -y install python-setuptools
+                     easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+                     ln -s /root/aws-cfn-bootstrap-latest/init/ubuntu/cfn-hup /etc/init.d/cfn-hup
+                     cfn-init -v --region ${AWS::Region} --stack ${AWS::StackName} --resource LaunchConfiguration 
+                     cfn-signal -e $? --region ${AWS::Region} --stack ${AWS::StackName} --resource AutoScalingGroup
+                  
+
     ElasticLoadBalancer:
         Type: AWS::ElasticLoadBalancing::LoadBalancer
         Properties:
           Scheme: internet-facing
-#          AvailabilityZones:
-#              Fn::GetAZs: !Ref "AWS::Region"
           Subnets: 
           - Ref: SubnetA
           - Ref: SubnetB
@@ -471,6 +514,14 @@ Resources:
             Protocol: TCP
             InstanceProtocol: TCP
 
+
+Outputs:
+    PublicEndpoint:
+          Description: "Endpoint running the app"
+          Value:  { "Fn::Join" : [ "", [ "http://", { "Fn::GetAtt" : [ "ElasticLoadBalancer", "DNSName" ]}]]}
+    SSHAccess:
+          Description: "Bastion SSH access"
+          Value:  { "Fn::Join" : [ "", [ "http://", { "Fn::GetAtt" : [ "Bastion", "PublicDnsName" ]}]]}
 #Outputs:
 #   ELBEndpoint:
 #       Description: "Endpoint running the app"
